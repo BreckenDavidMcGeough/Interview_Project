@@ -7,6 +7,10 @@ from infrastructure.infrastructure_stack import InfrastructureStack
 
 
 app = cdk.App()
-InfrastructureStack(app, "InfrastructureStack")
+InfrastructureStack(app, "InfrastructureStack", 
+    env = cdk.Environment(
+        account = "745752142803",
+        region = "us-east-1"
+    ))
 
 app.synth()
