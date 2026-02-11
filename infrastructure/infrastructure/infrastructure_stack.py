@@ -7,6 +7,9 @@ from aws_cdk import (
     aws_glue as glue,
     aws_s3_assets as s3_assets,
     aws_s3_deployment as s3_deployment,
+    aws_lambda as _lambda,
+    aws_s3_notifications as s3n,
+    Duration,
     RemovalPolicy
     # aws_sqs as sqs,
 )
@@ -18,9 +21,16 @@ class InfrastructureStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        #create s3 bucket
+        #create s3 bucket for the raw data
         raw_bucket = s3.Bucket(self, 
             "RawClickstreamBucket",
+            removal_policy = RemovalPolicy.DESTROY,
+            auto_delete_objects = True
+        )
+
+        #create s3 bucket for the processed data 
+        processed_bucket = s3.Bucket(self,
+            "ProcessedClickstreamBucket",
             removal_policy = RemovalPolicy.DESTROY,
             auto_delete_objects = True
         )
@@ -29,6 +39,16 @@ class InfrastructureStack(Stack):
         firehose_role = iam.Role(self, 
             "FirehoseRole",
             assumed_by = iam.ServicePrincipal("firehose.amazonaws.com")
+        )
+
+        #create iam role for glue
+        glue_role = iam.Role(self,
+            "GlueJobRole",
+            assumed_by = iam.ServicePrincipal("glue.amazonaws.com"),
+            managed_policies = [
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSGlueServiceRole")
+                #iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess")
+            ]
         )
 
         #grant read write permission to our bucket for the firehose role
@@ -53,43 +73,22 @@ class InfrastructureStack(Stack):
             )
         )
 
-        #create s3 bucket for the processed data 
-        processed_bucket = s3.Bucket(self,
-            "ProcessedClickstreamBucket",
-            removal_policy = RemovalPolicy.DESTROY,
-            auto_delete_objects = True
-        )
-
-        #create iam role for glue
-        glue_role = iam.Role(self,
-            "GlueJobRole",
-            assumed_by = iam.ServicePrincipal("glue.amazonaws.com"),
-            managed_policies = [
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSGlueServiceRole")
-                #iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess")
-            ]
+        #upload transfrom script to assets bucket
+        glue_script_asset = s3_assets.Asset(
+            self, "GlueScriptAsset",
+            path = "glue/transform.py"
         )
 
         #grant read permission to bucket with raw clickstream data for glue role
         raw_bucket.grant_read(glue_role)
         #grant read write permissions to processed bucket for glue role to write to 
         processed_bucket.grant_read_write(glue_role)
+        #grant read permissions to assets bucket for glue role to read transform script
+        glue_script_asset.bucket.grant_read(glue_role)
 
-        script_bucket = s3.Bucket(self,
-            "GlueScriptBucket"
-        )
-
-        s3_deployment.BucketDeployment(
-            self,
-            "DeployGlueScript",
-            sources = [s3_deployment.Source.asset("glue")],
-            destination_bucket = script_bucket,
-            destination_key_prefix = "script"
-        )
-
-        script_bucket.grant_read(glue_role)
-
-        glue.CfnJob(
+        #create the glue job that will read data from the raw bucket, run the transform script on it and write the output parquet
+        #file to the processed bucket
+        glue_job = glue.CfnJob(
             self,
             "GlueJob",
             name = "glue-job",
@@ -97,7 +96,7 @@ class InfrastructureStack(Stack):
             glue_version = "4.0",
             command = glue.CfnJob.JobCommandProperty(
                 name = "glueetl",
-                script_location = f"s3://{script_bucket.bucket_name}/script/transform.py",
+                script_location = glue_script_asset.s3_object_url,
                 python_version = "3"
             ),
             default_arguments = {
@@ -108,5 +107,52 @@ class InfrastructureStack(Stack):
                 #"--enable-continuous-cloudwatch-log" : "true"
             }
         )
+
+        # lambda_role = iam.Role(
+        #     self, "LambdaRole",
+        #     assumed_by = iam.ServicePrincipal("lambda.amazonaws.com"),
+        #     managed_policies = [
+        #         iam.ManagedPolicy.from_aws_managed_policy_name(
+        #             "service-role/AWSLambdaBasicExecutionRole"
+        #         )
+        #     ]
+        # )
+
+        # lambda_role.add_to_policy(
+        #     iam.PolicyStatement(
+        #         actions = ["glue:StartJobRun"],
+        #         resources = ["*"]
+        #     )
+        # )
+
+        # trigger_lambda = _lambda.Function(
+        #     self,
+        #     "TriggerLambda",
+        #     runtime = _lambda.Runtime.PYTHON_LATEST,
+        #     handler = "handler.lambda_handler",
+        #     code = _lambda.Code.from_asset("lambda/glue_trigger"),
+        #     role = lambda_role,
+        #     timeout = Duration.seconds(60),
+        #     memory_size = 128,
+        #     reserved_concurrent_executions = 1,
+        #     environment = {
+        #         "GLUE_JOB_NAME" : glue_job.name
+        #     }
+        # )
+
+        # trigger_lambda.add_permission(
+        #     "AllowS3Invoke",
+        #     principle = iam.ServicePrincipal("s3.amazonaws.com"),
+        #     source_arn = raw_bucket.bucket_arn
+        # )
+
+        # raw_bucket.add_event_notification(
+        #     s3.EventType.OBJECT_CREATED,
+        #     s3n.LambdaDestination(trigger_lambda)
+        # )
+
+
+
+
 
 
