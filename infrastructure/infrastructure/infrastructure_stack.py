@@ -67,7 +67,7 @@ class InfrastructureStack(Stack):
                     size_in_m_bs = 128,
                     interval_in_seconds = 60
                 ),
-                prefix = "!{timestamp:yyyy}/!{timestamp:MM}/!{timestamp:dd}/",
+                prefix = "year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/",
                 error_output_prefix = "errors/!{firehose:error-output-type}/",
                 compression_format = "UNCOMPRESSED"
             )
@@ -100,56 +100,48 @@ class InfrastructureStack(Stack):
                 python_version = "3"
             ),
             default_arguments = {
-                "--raw_bucket" : raw_bucket.bucket_name,
-                "--processed_bucket" : processed_bucket.bucket_name,
+                #"--raw_bucket" : raw_bucket.bucket_name,
+                #"--processed_bucket" : processed_bucket.bucket_name,
                 "--job-language" : "python",
-                "--TempDir" : f"s3://{processed_bucket.bucket_name}/temp/"
+                "--TempDir" : f"s3://{processed_bucket.bucket_name}/temp/",
+                "--enable-glue-datacatalog" : "true"
                 #"--enable-continuous-cloudwatch-log" : "true"
             }
         )
 
-        # lambda_role = iam.Role(
-        #     self, "LambdaRole",
-        #     assumed_by = iam.ServicePrincipal("lambda.amazonaws.com"),
-        #     managed_policies = [
-        #         iam.ManagedPolicy.from_aws_managed_policy_name(
-        #             "service-role/AWSLambdaBasicExecutionRole"
-        #         )
-        #     ]
-        # )
 
-        # lambda_role.add_to_policy(
-        #     iam.PolicyStatement(
-        #         actions = ["glue:StartJobRun"],
-        #         resources = ["*"]
-        #     )
-        # )
+        trigger_lambda = _lambda.Function(
+            self,
+            "TriggerLambda",
+            runtime = _lambda.Runtime.PYTHON_3_10,
+            handler = "handler.lambda_handler",
+            code = _lambda.Code.from_asset("trigger"),
+            timeout = Duration.seconds(60),
+            memory_size = 128,
+            environment = {
+                "GLUE_JOB_NAME" : glue_job.name,
+                "PROCESSED_BUCKET" : processed_bucket.bucket_name
+            }
+        )
 
-        # trigger_lambda = _lambda.Function(
-        #     self,
-        #     "TriggerLambda",
-        #     runtime = _lambda.Runtime.PYTHON_LATEST,
-        #     handler = "handler.lambda_handler",
-        #     code = _lambda.Code.from_asset("lambda/glue_trigger"),
-        #     role = lambda_role,
-        #     timeout = Duration.seconds(60),
-        #     memory_size = 128,
-        #     reserved_concurrent_executions = 1,
-        #     environment = {
-        #         "GLUE_JOB_NAME" : glue_job.name
-        #     }
-        # )
+        trigger_lambda.role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name(
+                "service-role/AWSLambdaBasicExecutionRole"
+            )
+        )
 
-        # trigger_lambda.add_permission(
-        #     "AllowS3Invoke",
-        #     principle = iam.ServicePrincipal("s3.amazonaws.com"),
-        #     source_arn = raw_bucket.bucket_arn
-        # )
+        trigger_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions = ["glue:StartJobRun"],
+                resources = ["*"]
+            )
+        )
 
-        # raw_bucket.add_event_notification(
-        #     s3.EventType.OBJECT_CREATED,
-        #     s3n.LambdaDestination(trigger_lambda)
-        # )
+        raw_bucket.add_event_notification(
+            s3.EventType.OBJECT_CREATED,
+            s3n.LambdaDestination(trigger_lambda),
+            #s3.NotificationKeyFilter(prefix = "")
+        )
 
 
 
