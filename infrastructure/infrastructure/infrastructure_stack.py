@@ -35,6 +35,10 @@ class InfrastructureStack(Stack):
             auto_delete_objects = True
         )
 
+        athena_results_bucket = s3.Bucket(self,
+            "AthenaResultsBucket"
+        )
+
         #create iam role for firehose to assign permissions 
         firehose_role = iam.Role(self, 
             "FirehoseRole",
@@ -100,16 +104,13 @@ class InfrastructureStack(Stack):
                 python_version = "3"
             ),
             default_arguments = {
-                #"--raw_bucket" : raw_bucket.bucket_name,
-                #"--processed_bucket" : processed_bucket.bucket_name,
                 "--job-language" : "python",
                 "--TempDir" : f"s3://{processed_bucket.bucket_name}/temp/",
                 "--enable-glue-datacatalog" : "true"
-                #"--enable-continuous-cloudwatch-log" : "true"
             }
         )
 
-
+        #create lambda function to trigger glue job. User code from handler.py 
         trigger_lambda = _lambda.Function(
             self,
             "TriggerLambda",
@@ -124,6 +125,7 @@ class InfrastructureStack(Stack):
             }
         )
 
+        #give appropriate permissions
         trigger_lambda.role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name(
                 "service-role/AWSLambdaBasicExecutionRole"
@@ -137,14 +139,50 @@ class InfrastructureStack(Stack):
             )
         )
 
+        #notify lambda function when new data enters s3 raw bucket
         raw_bucket.add_event_notification(
             s3.EventType.OBJECT_CREATED,
             s3n.LambdaDestination(trigger_lambda),
-            #s3.NotificationKeyFilter(prefix = "")
         )
 
 
 
+        crawler_role = iam.Role(
+            self, "CrawlerRole",
+            assumed_by = iam.ServicePrincipal("glue.amazonaws.com")
+        )
 
+        crawler_role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSGlueServiceRole")
+        )
+
+        processed_bucket.grant_read(crawler_role)
+
+        glue_db = glue.CfnDatabase(
+            self,
+            "GlueDatabase",
+            catalog_id = self.account,
+            database_input = glue.CfnDatabase.DatabaseInputProperty(
+                name = "clickstream_db"
+            )
+        )
+
+        glue_crawler = glue.CfnCrawler(
+            self,
+            "ProcessedCrawler",
+            name = "Processed-Clickstream-Crawler",
+            role = crawler_role.role_arn,
+            database_name = "clickstream_db",
+            table_prefix = "processed_",
+            targets = glue.CfnCrawler.TargetsProperty(
+                s3_targets = [
+                    glue.CfnCrawler.S3TargetProperty(
+                        path = f"s3://{processed_bucket.bucket_name}/processed/"
+                    )
+                ]
+            )
+        )
+
+        glue_crawler.add_dependency(glue_db)
 
 
