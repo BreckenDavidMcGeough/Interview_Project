@@ -20,7 +20,7 @@ def lambda_handler(event, context):
             continue
 
         source_path = f"s3://{raw_bucket}/{key}"
-        dest_prefix = f"s3://{PROCESSED_BUCKET}/processed"
+        dest_prefix = f"s3://{PROCESSED_BUCKET}/processed/"
 
         resp = glue.start_job_run(
             JobName = GLUE_JOB_NAME,
