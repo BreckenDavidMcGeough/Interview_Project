@@ -67,7 +67,7 @@ class InfrastructureStack(Stack):
                     size_in_m_bs = 128,
                     interval_in_seconds = 60
                 ),
-                prefix = "!{timestamp:yyyy}/!{timestamp:MM}/!{timestamp:dd}/",
+                prefix = "year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/",
                 error_output_prefix = "errors/!{firehose:error-output-type}/",
                 compression_format = "UNCOMPRESSED"
             )

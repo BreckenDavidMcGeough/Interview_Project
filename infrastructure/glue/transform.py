@@ -35,8 +35,8 @@ transformed_df = (
         .withColumn("day", dayofmonth(col("timestamp")))
 )
 
-print("source_path: {source_path}\n")
-print("dest_prefix: {dest_prefix}\n")
+print(f"source_path: {source_path}\n")
+print(f"dest_prefix: {dest_prefix}\n")
 
 transformed_df.write.mode("append").partitionBy("year", "month", "day").parquet(dest_prefix)
 
