@@ -1,5 +1,4 @@
 from aws_cdk import (
-    # Duration,
     Stack,
     aws_s3 as s3,
     aws_iam as iam,
@@ -11,7 +10,6 @@ from aws_cdk import (
     aws_s3_notifications as s3n,
     Duration,
     RemovalPolicy
-    # aws_sqs as sqs,
 )
 from constructs import Construct
 
@@ -35,8 +33,11 @@ class InfrastructureStack(Stack):
             auto_delete_objects = True
         )
 
+        #create s3 bucket for athena query output
         athena_results_bucket = s3.Bucket(self,
-            "AthenaResultsBucket"
+            "AthenaResultsBucket",
+            removal_policy = RemovalPolicy.DESTROY,
+            auto_delete_objects = True
         )
 
         #create iam role for firehose to assign permissions 
@@ -51,33 +52,31 @@ class InfrastructureStack(Stack):
             assumed_by = iam.ServicePrincipal("glue.amazonaws.com"),
             managed_policies = [
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSGlueServiceRole")
-                #iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess")
-            ]
+                            ]
         )
 
         #grant read write permission to our bucket for the firehose role
         raw_bucket.grant_read_write(firehose_role)
 
-        #create firehose delivery stream and specify direct put so data gets sent diretly into firehose, and specify bucket arn 
-        #to put data into the s3 bucket as well as role arn to assume role to get permissions, then batch save and partition by date
+        #create firehose delivery stream 
         firehose.CfnDeliveryStream(self, 
             "ClickstreamDeliveryStream",
             delivery_stream_name = "ClickstreamDeliveryStream",
-            delivery_stream_type = "DirectPut",
+            delivery_stream_type = "DirectPut", #direct put since sending to data to firehose directly via put record
             s3_destination_configuration = firehose.CfnDeliveryStream.S3DestinationConfigurationProperty(
-                bucket_arn = raw_bucket.bucket_arn,
-                role_arn = firehose_role.role_arn,
-                buffering_hints=firehose.CfnDeliveryStream.BufferingHintsProperty(
+                bucket_arn = raw_bucket.bucket_arn, #our destination bucket
+                role_arn = firehose_role.role_arn, #necessary permissions
+                buffering_hints=firehose.CfnDeliveryStream.BufferingHintsProperty( #batch data, 128 mbs or 60s for this project
                     size_in_m_bs = 128,
                     interval_in_seconds = 60
                 ),
-                prefix = "year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/",
+                prefix = "year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/", #partition data in bucket by date
                 error_output_prefix = "errors/!{firehose:error-output-type}/",
-                compression_format = "UNCOMPRESSED"
+                compression_format = "UNCOMPRESSED" #uncompressed for project
             )
         )
 
-        #upload transfrom script to assets bucket
+        #upload transfrom script to assets bucket for glue job to call
         glue_script_asset = s3_assets.Asset(
             self, "GlueScriptAsset",
             path = "glue/transform.py"
@@ -90,15 +89,14 @@ class InfrastructureStack(Stack):
         #grant read permissions to assets bucket for glue role to read transform script
         glue_script_asset.bucket.grant_read(glue_role)
 
-        #create the glue job that will read data from the raw bucket, run the transform script on it and write the output parquet
-        #file to the processed bucket
+        #create glue job
         glue_job = glue.CfnJob(
             self,
             "GlueJob",
             name = "glue-job",
-            role = glue_role.role_arn,
+            role = glue_role.role_arn, #role for glue job
             glue_version = "4.0",
-            command = glue.CfnJob.JobCommandProperty(
+            command = glue.CfnJob.JobCommandProperty( #run transform script on data to write to processed bucket
                 name = "glueetl",
                 script_location = glue_script_asset.s3_object_url,
                 python_version = "3"
@@ -110,12 +108,12 @@ class InfrastructureStack(Stack):
             }
         )
 
-        #create lambda function to trigger glue job. User code from handler.py 
+        #create lambda function
         trigger_lambda = _lambda.Function(
             self,
             "TriggerLambda",
             runtime = _lambda.Runtime.PYTHON_3_10,
-            handler = "handler.lambda_handler",
+            handler = "handler.lambda_handler", 
             code = _lambda.Code.from_asset("trigger"),
             timeout = Duration.seconds(60),
             memory_size = 128,
@@ -125,7 +123,7 @@ class InfrastructureStack(Stack):
             }
         )
 
-        #give appropriate permissions
+        #attach policy 
         trigger_lambda.role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name(
                 "service-role/AWSLambdaBasicExecutionRole"
@@ -145,19 +143,21 @@ class InfrastructureStack(Stack):
             s3n.LambdaDestination(trigger_lambda),
         )
 
-
-
+        #create iam role for glue crawler to get permissions 
         crawler_role = iam.Role(
             self, "CrawlerRole",
             assumed_by = iam.ServicePrincipal("glue.amazonaws.com")
         )
 
+        #add policy
         crawler_role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSGlueServiceRole")
         )
 
+        #grant crawler role read permissions to processed bucket
         processed_bucket.grant_read(crawler_role)
 
+        #create database 
         glue_db = glue.CfnDatabase(
             self,
             "GlueDatabase",
@@ -167,13 +167,14 @@ class InfrastructureStack(Stack):
             )
         )
 
+        #create glue crawler 
         glue_crawler = glue.CfnCrawler(
             self,
             "ProcessedCrawler",
             name = "Processed-Clickstream-Crawler",
             role = crawler_role.role_arn,
             database_name = "clickstream_db",
-            table_prefix = "processed_",
+            table_prefix = "processed_", #table prefix to store in database
             targets = glue.CfnCrawler.TargetsProperty(
                 s3_targets = [
                     glue.CfnCrawler.S3TargetProperty(

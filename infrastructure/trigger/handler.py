@@ -8,6 +8,7 @@ glue = boto3.client("glue")
 GLUE_JOB_NAME = os.environ["GLUE_JOB_NAME"]
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
 
+#start glue job and pass necessary arguments
 def lambda_handler(event, context):
     job_run_ids = []
 
@@ -20,12 +21,12 @@ def lambda_handler(event, context):
             continue
 
         source_path = f"s3://{raw_bucket}/{key}"
-        dest_prefix = f"s3://{PROCESSED_BUCKET}/processed/"
+        dest_prefix = f"s3://{PROCESSED_BUCKET}/processed/" #hardcode the processed prefix
 
         resp = glue.start_job_run(
             JobName = GLUE_JOB_NAME,
             Arguments = {
-                "--SOURCE_S3_PATH" : source_path,
+                "--SOURCE_S3_PATH" : source_path, #pass arguments for transform script so it can read and write to correct buckets
                 "--DEST_S3_PREFIX" : dest_prefix
             }
         )
