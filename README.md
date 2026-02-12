@@ -18,14 +18,14 @@ The stack creates three S3 buckets, one for raw json clickstream data, one for p
 
 
 # How to run:
-cd into Interview_Project/infrastructure (1st infrastructure folder in Interview_Project repo)
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cdk bootstrap (if necessary)
-cdk deploy
-pip install boto3 (if necessary)
-python tests/unit/send_test_clicks.py
+-cd into Interview_Project/infrastructure (1st infrastructure folder in Interview_Project repo)
+-python -m venv .venv
+-source .venv/bin/activate
+-pip install -r requirements.txt
+-cdk bootstrap (if necessary)
+-cdk deploy
+-pip install boto3 (if necessary)
+-python tests/unit/send_test_clicks.py
 #wait 3 minutes or run 
 <!-- aws glue get-job-runs \
 --job-name glue-job \                 
@@ -33,7 +33,7 @@ python tests/unit/send_test_clicks.py
 --query "JobRuns[0].JobRunState" \
 --output text -->
 #to know if job succeeded 
-aws glue start-crawler --name Processed-Clickstream-Crawler
+-aws glue start-crawler --name Processed-Clickstream-Crawler
 #run a sample query below and check athena s3 bucket for csv file, which contains the queried data
 
 
