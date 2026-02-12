@@ -14,7 +14,7 @@ args = getResolvedOptions(
 )
 
 job_name = args["JOB_NAME"]
-source_path = args["SOURCE_S3_PATH"]
+source_path = args["SOURCE_S3_PATH"] #passed by lambda 
 dest_prefix = args["DEST_S3_PREFIX"]
 
 spark_context = SparkContext()
@@ -26,18 +26,16 @@ job.init(job_name, args)
 
 df = spark.read.json(source_path)
 
-df = df.withColumn("timestamp", to_timestamp(col("timestamp")))
+df = df.withColumn("timestamp", to_timestamp(col("timestamp"))) #convert to timestamp
 
-transformed_df = (
+transformed_df = ( #simple processing of the dataframe
     df.withColumn("processed_at", current_timestamp())
         .withColumn("year", year(col("timestamp")))
         .withColumn("month", month(col("timestamp")))
         .withColumn("day", dayofmonth(col("timestamp")))
 )
 
-print(f"source_path: {source_path}\n")
-print(f"dest_prefix: {dest_prefix}\n")
-
-transformed_df.write.mode("append").partitionBy("year", "month", "day").parquet(dest_prefix)
+transformed_df.write.mode("append").partitionBy("year", "month", "day").parquet(dest_prefix) #partition by the year, month, day and 
+#store as parquet file in processed bucket
 
 job.commit()
