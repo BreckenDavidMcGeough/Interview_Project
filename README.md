@@ -43,9 +43,9 @@ I conversed and consulted with ChatGPT on the project for conceptual clarity and
 
 
 # Sample Athena queries:
-"SELECT * FROM clickstream_db.processed_year_2026 WHERE month='2' AND day='<current_day>' LIMIT 50;"
+"SELECT * FROM clickstream_db.processed_processed WHERE month='2' AND day='<current_day>' LIMIT 50;"
 
-"SELECT month, COUNT(DISTINCT user_id) AS unique_users FROM clickstream_db.processed_year_2026 WHERE month='2';"
+"SELECT month, COUNT(DISTINCT user_id) AS unique_users FROM clickstream_db.processed_processed WHERE month='2';"
 
 
 # Notes
